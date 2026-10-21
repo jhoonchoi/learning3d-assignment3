@@ -37,6 +37,9 @@ from dataset import (
 )
 from render_functions import render_geometry
 
+# CUDA on AWS, CPU fallback for local smoke tests on the Mac
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 
 # Model class containing:
 #   1) Implicit volume defining the scene
@@ -143,7 +146,7 @@ def render(
 ):
     # Create model
     model = Model(cfg)
-    model = model.cuda(); model.eval()
+    model = model.to(DEVICE); model.eval()
 
     # Render spiral
     cameras = create_surround_cameras(3.0, n_poses=20)
@@ -158,7 +161,7 @@ def train(
 ):
     # Create model
     model = Model(cfg)
-    model = model.cuda(); model.train()
+    model = model.to(DEVICE); model.train()
 
     # Create dataset 
     train_dataset = dataset_from_config(cfg.data)
@@ -190,8 +193,8 @@ def train(
     for epoch in t_range:
         for iteration, batch in enumerate(train_dataloader):
             image, camera, camera_idx = batch[0].values()
-            image = image.cuda()
-            camera = camera.cuda()
+            image = image.to(DEVICE)
+            camera = camera.to(DEVICE)
 
             # Sample rays
             xy_grid = get_random_pixels_from_image(cfg.training.batch_size, image_size, camera) # TODO (Q2.1): implement in ray_utils.py
@@ -231,7 +234,7 @@ def train(
 def create_model(cfg):
     # Create model
     model = Model(cfg)
-    model.cuda(); model.train()
+    model.to(DEVICE); model.train()
 
     # Load checkpoints
     optimizer_state_dict = None
@@ -306,8 +309,8 @@ def train_nerf(
 
         for iteration, batch in t_range:
             image, camera, camera_idx = batch[0].values()
-            image = image.cuda().unsqueeze(0)
-            camera = camera.cuda()
+            image = image.to(DEVICE).unsqueeze(0)
+            camera = camera.to(DEVICE)
 
             # Sample rays
             xy_grid = get_random_pixels_from_image(
