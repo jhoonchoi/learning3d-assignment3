@@ -44,7 +44,7 @@ def train_box(num_epochs=1000):
 3. Optimizing a Neural Radiance Field (20 points)
 """
 def train_nerf_lego(num_epochs=250, retrain=False):
-    train_nerf("nerf_lego", tag="lego", gif="part_3.gif",
+    train_nerf("nerf_lego", tag="lego", gif="part_3_lego.gif",
                num_epochs=num_epochs, retrain=retrain)
 
 
@@ -110,9 +110,10 @@ def train_nerf(config, tag, gif, num_epochs, retrain=False):
     run_nerf(config, [f"training.num_epochs={num_epochs}",
                       f"training.checkpoint_path={checkpoint}"])
 
-    # train_nerf always writes images/part_3.gif; keep a per-run copy
-    if gif != "part_3.gif":
-        shutil.copy(os.path.join(NERF_DIR, "images", "part_3.gif"), output)
+    # train_nerf always writes images/part_3.gif, so every run (lego included) keeps a
+    # per-run copy; the copy only exists once the run finishes, so the skip check above
+    # can't mistake an interrupted run for a finished one
+    shutil.copy(os.path.join(NERF_DIR, "images", "part_3.gif"), output)
 
 
 def run_nerf(config, overrides=()):
