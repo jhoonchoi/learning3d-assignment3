@@ -262,6 +262,8 @@ class NeuralRadianceField(torch.nn.Module):
         embedding_dim_xyz = self.harmonic_embedding_xyz.output_dim
         embedding_dim_dir = self.harmonic_embedding_dir.output_dim
 
+        self.view_dependence = cfg.get('view_dependence', False)
+
         self.mlp_xyz = MLPWithInputSkips(
             n_layers=cfg.n_layers_xyz,
             input_dim=embedding_dim_xyz,
@@ -277,8 +279,9 @@ class NeuralRadianceField(torch.nn.Module):
         )
         torch.nn.init.constant_(self.density_head[0].bias, 0.1)
 
+        color_in = cfg.n_hidden_neurons_xyz + (embedding_dim_dir if self.view_dependence else 0)
         self.color_head = torch.nn.Sequential(
-            torch.nn.Linear(cfg.n_hidden_neurons_xyz, cfg.n_hidden_neurons_dir),
+            torch.nn.Linear(color_in, cfg.n_hidden_neurons_dir),
             torch.nn.ReLU(),
             torch.nn.Linear(cfg.n_hidden_neurons_dir, 3),
             torch.nn.Sigmoid(),
@@ -290,7 +293,17 @@ class NeuralRadianceField(torch.nn.Module):
         h = self.mlp_xyz(emb, emb)
 
         density = self.density_head(h)
-        color = self.color_head(h)
+
+        # TODO (Q4.1): when self.view_dependence, embed ray_bundle.directions (one per ray)
+        # for every sample point and feed it to the color head along with h
+        if self.view_dependence:
+            dir_emb = self.harmonic_embedding_dir(ray_bundle.directions)
+            n_pts = ray_bundle.sample_points.shape[1]
+            dir_emb = dir_emb[:, None, :].expand(-1, n_pts, -1)
+            dir_emb = dir_emb.reshape(-1, dir_emb.shape[-1])
+            color = self.color_head(torch.cat([h, dir_emb], dim=-1))
+        else:
+            color = self.color_head(h)
 
         return {
             'density': density,
