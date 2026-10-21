@@ -12,3 +12,9 @@ soln/ta_images/
 soln/data/
 soln/points_checkpoint
 logs/
+
+# materials scene: 147 MB, over GitHub's 100 MB limit (unzipped from nerf_materials/materials.zip)
+nerf_materials/
+GS/data/materials.png
+nerf/data/materials.*
+__MACOSX/
