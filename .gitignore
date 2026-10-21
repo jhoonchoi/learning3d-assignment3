@@ -18,3 +18,6 @@ nerf_materials/
 GS/data/materials.png
 nerf/data/materials.*
 __MACOSX/
+# NeRF datasets downloaded by nerf/dataset.py (lego.png is 171 MB)
+nerf/data/*.png
+nerf/data/*_license.txt

@@ -262,7 +262,40 @@ class NeuralRadianceField(torch.nn.Module):
         embedding_dim_xyz = self.harmonic_embedding_xyz.output_dim
         embedding_dim_dir = self.harmonic_embedding_dir.output_dim
 
-        pass
+        self.mlp_xyz = MLPWithInputSkips(
+            n_layers=cfg.n_layers_xyz,
+            input_dim=embedding_dim_xyz,
+            output_dim=cfg.n_hidden_neurons_xyz,
+            skip_dim=embedding_dim_xyz,
+            hidden_dim=cfg.n_hidden_neurons_xyz,
+            input_skips=cfg.append_xyz,
+        )
+
+        self.density_head = torch.nn.Sequential(
+            torch.nn.Linear(cfg.n_hidden_neurons_xyz, 1),
+            torch.nn.ReLU()
+        )
+        torch.nn.init.constant_(self.density_head[0].bias, 0.1)
+
+        self.color_head = torch.nn.Sequential(
+            torch.nn.Linear(cfg.n_hidden_neurons_xyz, cfg.n_hidden_neurons_dir),
+            torch.nn.ReLU(),
+            torch.nn.Linear(cfg.n_hidden_neurons_dir, 3),
+            torch.nn.Sigmoid(),
+        )
+
+    def forward(self, ray_bundle):
+        points = ray_bundle.sample_points.view(-1, 3)
+        emb = self.harmonic_embedding_xyz(points)
+        h = self.mlp_xyz(emb, emb)
+
+        density = self.density_head(h)
+        color = self.color_head(h)
+
+        return {
+            'density': density,
+            'feature': color,
+        }
 
 
 class NeuralSurface(torch.nn.Module):
