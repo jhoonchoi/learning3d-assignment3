@@ -35,7 +35,7 @@ from dataset import (
     get_nerf_datasets,
     trivial_collate,
 )
-from render_functions import render_geometry
+from render_functions import render_geometry, render_points
 
 # CUDA on AWS, CPU fallback for local smoke tests on the Mac
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -110,11 +110,14 @@ def render_images(
             plt.imsave('images/rays.png', vis_rays(ray_bundle, image_size))
         
         # TODO (Q1.4): Implement point sampling along rays in sampler.py
-        pass
+        ray_bundle = model.sampler(ray_bundle)
 
         # TODO (Q1.4): Visualize sample points as point cloud
         if cam_idx == 0 and file_prefix == '':
-            pass
+            render_points(
+                'images/sample_points.png',
+                ray_bundle.sample_points[::50].reshape(1, -1, 3)
+            )
 
         # TODO (Q1.5): Implement rendering in renderer.py
         out = model(ray_bundle)
@@ -129,7 +132,8 @@ def render_images(
 
         # TODO (Q1.5): Visualize depth
         if cam_idx == 2 and file_prefix == '':
-            pass
+            depth = out['depth'].view(image_size[1], image_size[0]).detach().cpu().numpy()
+            plt.imsave('images/depth.png', depth / depth.max(), cmap='gray')
 
         # Save
         if save:
