@@ -294,8 +294,6 @@ class NeuralRadianceField(torch.nn.Module):
 
         density = self.density_head(h)
 
-        # TODO (Q4.1): when self.view_dependence, embed ray_bundle.directions (one per ray)
-        # for every sample point and feed it to the color head along with h
         if self.view_dependence:
             dir_emb = self.harmonic_embedding_dir(ray_bundle.directions)
             n_pts = ray_bundle.sample_points.shape[1]
@@ -312,50 +310,62 @@ class NeuralRadianceField(torch.nn.Module):
 
 
 class NeuralSurface(torch.nn.Module):
+    """Generated using claude"""
     def __init__(
         self,
         cfg,
     ):
         super().__init__()
-        # TODO (Q4.3): Implement Neural Surface MLP to output per-point SDF
-        # TODO (Q4.3): Implement Neural Surface MLP to output per-point color
+        self.harmonic_embedding_xyz = HarmonicEmbedding(3, cfg.n_harmonic_functions_xyz)
+        embedding_dim_xyz = self.harmonic_embedding_xyz.output_dim
+
+        self.distance_mlp = MLPWithInputSkips(
+            n_layers=cfg.n_layers_distance,
+            input_dim=embedding_dim_xyz,
+            output_dim=cfg.n_hidden_neurons_distance,
+            skip_dim=embedding_dim_xyz,
+            hidden_dim=cfg.n_hidden_neurons_distance,
+            input_skips=cfg.append_distance,
+        )
+
+        self.distance_head = torch.nn.Linear(cfg.n_hidden_neurons_distance, 1)
+
+        self.color_mlp = MLPWithInputSkips(
+            n_layers=cfg.n_layers_color,
+            input_dim=cfg.n_hidden_neurons_distance,
+            output_dim=3,
+            skip_dim=cfg.n_hidden_neurons_distance,
+            hidden_dim=cfg.n_hidden_neurons_color,
+            input_skips=cfg.append_color,
+        )
+
+    def _features(self, points):
+        emb = self.harmonic_embedding_xyz(points.view(-1, 3))
+        return self.distance_mlp(emb, emb)
+
+    def _sdf(self, points, h):
+        return self.distance_head(h) + (torch.linalg.norm(points.view(-1, 3), dim=-1, keepdim=True) - 1.0)
 
     def get_distance(
         self,
         points
     ):
-        '''
-        TODO: Q4.3
-        Output:
-            distance: N X 1 Tensor, where N is number of input points
-        '''
-        points = points.view(-1, 3)
-        pass
-    
+        return self._sdf(points, self._features(points))
+
     def get_color(
         self,
         points
     ):
-        '''
-        TODO: Q4.3
-        Output:
-            distance: N X 3 Tensor, where N is number of input points
-        '''
-        points = points.view(-1, 3)
-        pass
-    
+        h = self._features(points)
+        return torch.sigmoid(self.color_mlp(h, h))
+
     def get_distance_color(
         self,
         points
     ):
-        '''
-        TODO: Q4.3
-        Output:
-            distance, points: N X 1, N X 3 Tensors, where N is number of input points
-        You may just implement this by independent calls to get_distance, get_color
-            but, depending on your MLP implementation, it maybe more efficient to share some computation
-        '''
-        
+        h = self._features(points)
+        return self._sdf(points, h), torch.sigmoid(self.color_mlp(h, h))
+
     def forward(self, points):
         return self.get_distance(points)
 
