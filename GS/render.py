@@ -34,7 +34,7 @@ def create_renders(args):
     gaussians.means = new_points
 
     # Creating the scene with the loaded gaussians
-    scene = Scene(gaussians)
+    scene = Scene(gaussians, use_sh=args.sh)
 
     imgs = []
     for i in tqdm(range(num_views), desc="Rendering"):
@@ -108,6 +108,7 @@ def get_args():
         )
     )
     parser.add_argument("--device", default="cuda", type=str, choices=["cuda", "cpu"])
+    parser.add_argument("--sh", action="store_true", help="render with sphere harmonics")
     args = parser.parse_args()
     return args
 

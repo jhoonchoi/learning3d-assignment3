@@ -87,7 +87,7 @@ def train_gaussians(num_itrs=1000, gaussians_per_splat=-1):
 def render_gaussians_sh(gaussians_per_splat=2048):
     # TODO (Q7.1): render.py has no switch between DC-only (Q5.5) and full SH yet;
     # add one when implementing [Q 7.1] so both GIFs can be reproduced from here
-    run_gs("render.py", ["--out_path", "output/part_7_1",
+    run_gs("render.py", ["--out_path", "output/part_7_1", "--sh",
                          "--gaussians_per_splat", str(gaussians_per_splat)])
 
 

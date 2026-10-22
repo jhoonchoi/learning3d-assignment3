@@ -67,8 +67,8 @@ class Gaussians:
         self.pre_act_opacities = data["pre_act_opacities"]
 
         # [Q 7.1] NOTE: Uncomment spherical harmonics code for question 7.1
-        # if data.get("spherical_harmonics") is not None:
-        #     self.spherical_harmonics = data["spherical_harmonics"]
+        if data.get("spherical_harmonics") is not None:
+           self.spherical_harmonics = data["spherical_harmonics"]
 
         if self.device == "cuda":
             self.to_cuda()
@@ -88,7 +88,7 @@ class Gaussians:
         data["colours"] = torch.tensor(ply_gaussians["dc_colours"])
 
         # [Q 7.1] NOTE: Uncomment spherical harmonics code for question 7.1
-        # data["spherical_harmonics"] = torch.tensor(ply_gaussians["sh"])
+        data["spherical_harmonics"] = torch.tensor(ply_gaussians["sh"])
 
         if data["pre_act_scales"].shape[1] != 3:
             raise NotImplementedError("Currently does not support isotropic")
@@ -211,7 +211,8 @@ class Gaussians:
         self.pre_act_opacities = self.pre_act_opacities.cuda()
 
         # [Q 7.1] NOTE: Uncomment spherical harmonics code for question 7.1
-        # self.spherical_harmonics = self.spherical_harmonics.cuda()
+        if hasattr(self, "spherical_harmonics"):
+            self.spherical_harmonics = self.spherical_harmonics.cuda()
 
     def compute_cov_3D(self, quats: torch.Tensor, scales: torch.Tensor):
         """
@@ -364,9 +365,10 @@ class Gaussians:
 
 class Scene:
 
-    def __init__(self, gaussians: Gaussians):
+    def __init__(self, gaussians: Gaussians, use_sh: bool=False):
         self.gaussians = gaussians
         self.device = self.gaussians.device
+        self.use_sh = use_sh
 
     def __repr__(self):
         return f"<Scene with {len(self.gaussians)} Gaussians>"
@@ -609,10 +611,10 @@ class Scene:
         # [Q 7.1] For question 7.1, uncomment the below three lines to calculate the
         # colours instead of using self.gaussians.colours[idxs]. You may also comment
         # out the above line of code since it will be overwritten anyway.
-
-        # spherical_harmonics = self.gaussians.spherical_harmonics[idxs]
-        # gaussian_dirs = self.calculate_gaussian_directions(means_3D, camera)
-        # colours = colours_from_spherical_harmonics(spherical_harmonics, gaussian_dirs)
+        if self.use_sh:
+            spherical_harmonics = self.gaussians.spherical_harmonics[idxs]
+            gaussian_dirs = self.calculate_gaussian_directions(means_3D, camera)
+            colours = colours_from_spherical_harmonics(spherical_harmonics, gaussian_dirs)
 
         # Apply activations
         quats, scales, opacities = self.gaussians.apply_activations(
@@ -683,8 +685,6 @@ class Scene:
             gaussian_dirs   :   A torch.Tensor of shape (N, 3) representing the direction vector
                                 that points from the camera's origin to each 3D Gaussian.
         """
-        ### YOUR CODE HERE ###
-        # HINT: Think about how to get the camera origin in the world frame.
-        # HINT: Do not forget to normalize the computed directions.
-        gaussian_dirs = None  # (N, 3)
+        cam_centre = camera.get_camera_center()
+        gaussian_dirs = torch.nn.functional.normalize(means_3D - cam_centre, dim=-1)
         return gaussian_dirs
