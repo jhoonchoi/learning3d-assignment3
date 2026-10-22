@@ -67,6 +67,13 @@ class Model(torch.nn.Module):
         self.renderer = renderer_dict[cfg.renderer.type](
             cfg.renderer
         )
+
+        # coarse fine
+        self.implicit_fn_fine = None
+        if cfg.renderer.type == 'volume_coarse_fine':
+            self.implicit_fn_fine = implicit_dict[cfg.implicit_function.type](
+                cfg.implicit_function
+            )
     
     def forward(
         self,
@@ -75,10 +82,13 @@ class Model(torch.nn.Module):
         # Call renderer with
         #  a) Implicit volume
         #  b) Sampling routine
+        implicit_fn = self.implicit_fn
+        if self.implicit_fn_fine is not None:
+            implicit_fn = (self.implicit_fn, self.implicit_fn_fine)
 
         return self.renderer(
             self.sampler,
-            self.implicit_fn,
+            implicit_fn,
             ray_bundle
         )
 
@@ -330,6 +340,8 @@ def train_nerf(
 
             # TODO (Q3.1): Calculate loss
             loss = torch.nn.functional.mse_loss(out['feature'], rgb_gt)
+            if 'feature_coarse' in out:
+                loss += torch.nn.functional.mse_loss(out['feature_coarse'], rgb_gt)
 
             if cfg.renderer.type == 'volume_sdf':
                 loss += cfg.training.eikonal_weight * get_eikonal_loss(

@@ -193,8 +193,101 @@ class VolumeSDFRenderer(VolumeRenderer):
 
         return out
 
+class CoarseFineVolumeRenderer(VolumeRenderer):
+    def __init__(self, cfg):
+        super().__init__(cfg)
+        self.n_pts_fine = cfg.n_pts_fine
+
+    def _render_pass(self, implicit_fn, ray_bundle):
+        n_pts = ray_bundle.sample_shape[1]
+        implicit_output = implicit_fn(ray_bundle)
+        density = implicit_output['density']
+        feature = implicit_output['feature']
+
+        depth_values = ray_bundle.sample_lengths[..., 0]
+        deltas = torch.cat(
+            (
+                depth_values[..., 1:] - depth_values[..., :-1],
+                1e10 * torch.ones_like(depth_values[..., :1]),
+            ),
+            dim=-1,
+        )[..., None]
+
+        weights = self._compute_weights(deltas.view(-1, n_pts, 1), density.view(-1, n_pts, 1))
+        feature = self._aggregate(weights, feature.view(-1, n_pts, feature.shape[-1]))
+        depth = self._aggregate(weights, ray_bundle.sample_lengths)
+        return feature, depth, weights
+
+    def forward(self, sampler, implicit_fn, ray_bundle):
+        implicit_fn_coarse, implicit_fn_fine = implicit_fn
+        B = ray_bundle.shape[0]
+        chunk_outputs = []
+
+        for chunk_start in range(0, B, self._chunk_size):
+            cur_ray_bundle = ray_bundle[chunk_start:chunk_start+self._chunk_size]
+
+            # Coarse pass
+            cur_ray_bundle = sampler(cur_ray_bundle)
+            feature_coarse, _, weights = self._render_pass(implicit_fn_coarse, cur_ray_bundle)
+
+            # Fine samples
+            z_coarse = cur_ray_bundle.sample_lengths[..., 0]
+            z_mids = 0.5 * (z_coarse[:, 1:] + z_coarse[:, :-1])
+            z_fine = sample_pdf(
+                z_mids, weights[:, 1:-1, 0].detach(), self.n_pts_fine,
+                det=not torch.is_grad_enabled(),
+            )
+            z_all, _ = torch.sort(torch.cat([z_coarse, z_fine.detach()], dim=-1), dim=-1)
+
+            # Fine pass
+            cur_ray_bundle = cur_ray_bundle._replace(
+                sample_points=cur_ray_bundle.origins[:, None, :] + z_all[..., None] * cur_ray_bundle.directions[:, None, :],
+                sample_lengths=z_all[..., None],
+            )
+            feature, depth, _ = self._render_pass(implicit_fn_fine, cur_ray_bundle)
+
+            chunk_outputs.append({
+                'feature': feature,
+                'feature_coarse': feature_coarse,
+                'depth': depth,
+            })
+
+        out = {
+            k: torch.cat(
+              [chunk_out[k] for chunk_out in chunk_outputs],
+              dim=0
+            ) for k in chunk_outputs[0].keys()
+        }
+
+        return out    
+
+def sample_pdf(bins, weights, n_samples, det=False, eps=1e-5):
+    weights = weights + eps
+    pdf = weights / torch.sum(weights, dim=-1, keepdim=True)
+    cdf = torch.cumsum(pdf, dim=-1)
+    cdf = torch.cat([torch.zeros_like(cdf[:, :1]), cdf], dim=-1)
+
+    if det:
+        u = torch.linspace(0.0, 1.0, n_samples, device=bins.device).expand(cdf.shape[0], n_samples)
+    else:
+        u = torch.rand(cdf.shape[0], n_samples, device=bins.device)
+    u = u.contiguous()
+
+    idx = torch.searchsorted(cdf, u, right=True)
+    below = torch.clamp(idx - 1, min=0)
+    above = torch.clamp(idx, max=cdf.shape[-1] - 1)
+
+    cdf_below, cdf_above = torch.gather(cdf, 1, below), torch.gather(cdf, 1, above)
+    bin_below, bin_above = torch.gather(bins, 1, below), torch.gather(bins, 1, above)
+
+    denom = cdf_above - cdf_below
+    denom = torch.where(denom < eps, torch.ones_like(denom), denom)
+    t = (u - cdf_below) / denom
+
+    return bin_below + t * (bin_above - bin_below)
 
 renderer_dict = {
     'volume': VolumeRenderer,
-    'volume_sdf': VolumeSDFRenderer
+    'volume_sdf': VolumeSDFRenderer,
+    'volume_coarse_fine': CoarseFineVolumeRenderer,
 }

@@ -59,6 +59,15 @@ def train_nerf_materials(num_epochs=250, highres=False, retrain=False):
 
 
 """
+4.2. Coarse/fine sampling (10 bonus points)
+"""
+def train_nerf_coarse_fine(num_epochs=250, retrain=False):
+    # lego with a coarse (64 stratified) and a fine (+128 importance-sampled) network
+    train_nerf("nerf_lego_coarse_fine", tag="lego_coarse_fine",
+               gif="part_4_2_lego_coarse_fine.gif", num_epochs=num_epochs, retrain=retrain)
+
+
+"""
 5.1-5.5. 3D Gaussian rasterization (35 points)
 """
 def test_gaussians():
@@ -157,6 +166,7 @@ PARTS = {
     "train_box": train_box,
     "train_nerf_lego": train_nerf_lego,
     "train_nerf_materials": train_nerf_materials,
+    "train_nerf_coarse_fine": train_nerf_coarse_fine,
     "test_gaussians": test_gaussians,
     "render_gaussians": render_gaussians,
     "train_gaussians": train_gaussians,
@@ -175,7 +185,7 @@ def main():
     if unknown:
         parser.error(f"unknown part(s) {unknown}; choose from {list(PARTS)}")
 
-    # A. Neural volume rendering: 1.3-1.5, 2, 3, 4.1 (view dependence)
+    # A. Neural volume rendering: 1.3-1.5, 2, 3, 4.1 (view dependence), 4.2 (coarse/fine)
     # B. 3D Gaussian splatting: 5.1-5.5, 6, 7.1 (spherical harmonics), 7.2 (harder scene)
     for name in args.parts or PARTS:
         PARTS[name]()

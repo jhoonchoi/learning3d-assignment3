@@ -25,3 +25,4 @@ nerf/data/*_license.txt
 nerf/images/
 nerf/logs/
 GS/output/
+GS/data/materials/
