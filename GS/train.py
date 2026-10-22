@@ -13,9 +13,13 @@ from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 
 def make_trainable(gaussians):
 
-    ### YOUR CODE HERE ###
-    # HINT: You can access and modify parameters from gaussians
-    pass
+    gaussians.means.requires_grad_(True)
+    gaussians.pre_act_scales.requires_grad_(True)
+    gaussians.colours.requires_grad_(True)
+    gaussians.pre_act_opacities.requires_grad_(True)
+
+    if not gaussians.is_isotropic:
+        gaussians.pre_act_quats.requires_grad_(True)
 
 def setup_optimizer(gaussians):
 
@@ -29,12 +33,15 @@ def setup_optimizer(gaussians):
     # HINT: Consider setting different learning rates for different sets of parameters.
     parameters = [
         {'params': [gaussians.pre_act_opacities], 'lr': 0.05, "name": "opacities"},
-        {'params': [gaussians.pre_act_scales], 'lr': 0.05, "name": "scales"},
+        {'params': [gaussians.pre_act_scales], 'lr': 0.01, "name": "scales"},
         {'params': [gaussians.colours], 'lr': 0.05, "name": "colours"},
-        {'params': [gaussians.means], 'lr': 0.05, "name": "means"},
+        {'params': [gaussians.means], 'lr': 0.001, "name": "means"},
     ]
+
+    if not gaussians.is_isotropic:
+        parameters.append({'params': [gaussians.pre_act_quats], 'lr': 0.001, "name": "quats"})
+
     optimizer = torch.optim.Adam(parameters, lr=0.0, eps=1e-15)
-    optimizer = None
 
     return optimizer
 
@@ -66,7 +73,7 @@ def run_training(args):
     gt_viz_imgs = [np.array(Image.fromarray(x).resize((256, 256))) for x in gt_viz_imgs]
     gt_viz_img = np.concatenate(gt_viz_imgs, axis=1)
 
-    viz_cameras = [train_dataset[i][1].cuda() for i in viz_idxs]
+    viz_cameras = [train_dataset[i][1].to(args.device) for i in viz_idxs]
 
     # Init gaussians and scene. Do note that we are setting isotropic to True
     gaussians = Gaussians(
@@ -92,24 +99,26 @@ def run_training(args):
 
         gt_img, camera, gt_mask = data
 
-        gt_img = gt_img[0].cuda()
-        camera = camera[0].cuda()
+        gt_img = gt_img[0].to(args.device)
+        camera = camera[0].to(args.device)
         if gt_mask is not None:
-            gt_mask = gt_mask[0].cuda()
+            gt_mask = gt_mask[0].to(args.device)
 
         # Rendering scene using gaussian splatting
-        ### YOUR CODE HERE ###
         # HINT: Can any function from the Scene class help?
         # HINT: Set bg_colour to (0.0, 0.0, 0.0)
         # HINT: Get img_size from train_dataset
         # HINT: Get per_splat from args.gaussians_per_splat
         # HINT: camera is available above
-        pred_img = None
+        pred_img, _, _ = scene.render(
+            camera, 
+            per_splat=args.gaussians_per_splat,
+            img_size=train_dataset.img_size, 
+            bg_colour=(0.0, 0.0, 0.0),
+        )
 
         # Compute loss
-        ### YOUR CODE HERE ###
-        # HINT: A simple standard loss function should work.
-        loss = None
+        loss = torch.nn.functional.l1_loss(pred_img, gt_img)
 
         loss.backward()
         optimizer.step()
@@ -137,21 +146,25 @@ def run_training(args):
     )
     for viz_data in tqdm(viz_loader, desc="Creating Visualization"):
         gt_img, camera, gt_mask = viz_data
-        gt_img = gt_img[0].cuda()
-        camera = camera[0].cuda()
+        gt_img = gt_img[0].to(args.device)
+        camera = camera[0].to(args.device)
         if gt_mask is not None:
-            gt_mask = gt_mask[0].cuda()
+            gt_mask = gt_mask[0].to(args.device)
 
         with torch.no_grad():
 
             # Rendering scene using gaussian splatting
-            ### YOUR CODE HERE ###
             # HINT: Can any function from the Scene class help?
             # HINT: Set bg_colour to (0.0, 0.0, 0.0)
             # HINT: Get img_size from train_dataset
             # HINT: Get per_splat from args.gaussians_per_splat
             # HINT: camera is available above
-            pred_img = None
+            pred_img, _, _ = scene.render(
+                camera, 
+                per_splat=args.gaussians_per_splat,
+                img_size=train_dataset.img_size, 
+                bg_colour=(0.0, 0.0, 0.0),
+            )
 
         pred_npy = pred_img.detach().cpu().numpy()
         pred_npy = (np.clip(pred_npy, 0.0, 1.0) * 255.0).astype(np.uint8)
@@ -165,21 +178,25 @@ def run_training(args):
     for test_data in tqdm(test_loader, desc="Running Evaluation"):
 
         gt_img, camera, gt_mask = test_data
-        gt_img = gt_img[0].cuda()
-        camera = camera[0].cuda()
+        gt_img = gt_img[0].to(args.device)
+        camera = camera[0].to(args.device)
         if gt_mask is not None:
-            gt_mask = gt_mask[0].cuda()
+            gt_mask = gt_mask[0].to(args.device)
 
         with torch.no_grad():
 
             # Rendering scene using gaussian splatting
-            ### YOUR CODE HERE ###
             # HINT: Can any function from the Scene class help?
             # HINT: Set bg_colour to (0.0, 0.0, 0.0)
             # HINT: Get img_size from test_dataset
             # HINT: Get per_splat from args.gaussians_per_splat
             # HINT: camera is available above
-            pred_img = None
+            pred_img, _, _ = scene.render(
+                camera, 
+                per_splat=args.gaussians_per_splat,
+                img_size=test_dataset.img_size, 
+                bg_colour=(0.0, 0.0, 0.0),
+            )
 
             gt_npy = gt_img.detach().cpu().numpy()
             pred_npy = pred_img.detach().cpu().numpy()
