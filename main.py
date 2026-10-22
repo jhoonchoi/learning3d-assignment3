@@ -68,6 +68,16 @@ def train_nerf_coarse_fine(num_epochs=250, retrain=False):
 
 
 """
+4.3. VolSDF (10 bonus points)
+"""
+def train_volsdf(num_epochs=250, retrain=False):
+    # lego as an SDF (NeuralSurface + eikonal loss); final color GIF copied to
+    # images/part_4_3_volsdf.gif, geometry GIF written to images/part_4_3_geometry.gif
+    train_nerf("volsdf_surface", tag="volsdf", gif="part_4_3_volsdf.gif",
+               num_epochs=num_epochs, retrain=retrain, src="part_4_3.gif")
+
+
+"""
 5.1-5.5. 3D Gaussian rasterization (35 points)
 """
 def test_gaussians():
@@ -122,7 +132,7 @@ def train_harder_improved(num_itrs=3000, gaussians_per_splat=-1):
 """
 Helper functions
 """
-def train_nerf(config, tag, gif, num_epochs, retrain=False):
+def train_nerf(config, tag, gif, num_epochs, retrain=False, src="part_3.gif"):
     # every config defaults to the same ./checkpoints file with resume: True, so each
     # run gets its own checkpoint; otherwise materials would resume from lego's weights
     checkpoint = os.path.join("checkpoints", f"{tag}.pth")
@@ -140,10 +150,10 @@ def train_nerf(config, tag, gif, num_epochs, retrain=False):
                       f"training.checkpoint_path={checkpoint}",
                       "training.checkpoint_interval=10"])
 
-    # train_nerf always writes images/part_3.gif, so every run (lego included) keeps a
-    # per-run copy; the copy only exists once the run finishes, so the skip check above
-    # can't mistake an interrupted run for a finished one
-    shutil.copy(os.path.join(NERF_DIR, "images", "part_3.gif"), output)
+    # train_nerf always writes images/<src> (part_3.gif, or part_4_3.gif for VolSDF), so
+    # every run keeps a per-run copy; the copy only exists once the run finishes, so the
+    # skip check above can't mistake an interrupted run for a finished one
+    shutil.copy(os.path.join(NERF_DIR, "images", src), output)
 
 
 def run_nerf(config, overrides=()):
@@ -169,6 +179,7 @@ PARTS = {
     "train_nerf_lego": train_nerf_lego,
     "train_nerf_materials": train_nerf_materials,
     "train_nerf_coarse_fine": train_nerf_coarse_fine,
+    "train_volsdf": train_volsdf,
     "test_gaussians": test_gaussians,
     "render_gaussians": render_gaussians,
     "train_gaussians": train_gaussians,
@@ -187,7 +198,7 @@ def main():
     if unknown:
         parser.error(f"unknown part(s) {unknown}; choose from {list(PARTS)}")
 
-    # A. Neural volume rendering: 1.3-1.5, 2, 3, 4.1 (view dependence), 4.2 (coarse/fine)
+    # A. Neural volume rendering: 1.3-1.5, 2, 3, 4.1 (view dependence), 4.2 (coarse/fine), 4.3 (VolSDF)
     # B. 3D Gaussian splatting: 5.1-5.5, 6, 7.1 (spherical harmonics), 7.2 (harder scene)
     for name in args.parts or PARTS:
         PARTS[name]()
