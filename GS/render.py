@@ -19,7 +19,8 @@ def create_renders(args):
     azims = np.linspace(-180, 180, num_views)
     elevs = np.linspace(-180, 180, num_views)
 
-    debug_root = os.path.join(args.out_path, "part_5_render")
+    name = "part_7_1_render" if args.sh else "part_5_render"
+    debug_root = os.path.join(args.out_path, name)
     if not os.path.exists(debug_root):
         os.makedirs(debug_root, exist_ok=True)
 
@@ -74,7 +75,7 @@ def create_renders(args):
 
         imgs.append(np.array(resized))
 
-    gif_path = os.path.join(args.out_path, "part_5_render.gif")
+    gif_path = os.path.join(args.out_path, f"{name}.gif")
     imageio.mimwrite(gif_path, imgs, duration=1000.0*(1/10.0), loop=0)
 
 def get_args():
