@@ -1,8 +1,10 @@
+import math
 import os
 import torch
 import imageio
 import argparse
 import numpy as np
+import torch.nn.functional as F
 
 from PIL import Image
 from tqdm import tqdm
@@ -14,32 +16,50 @@ from data_utils_harder_scene import get_nerf_datasets, trivial_collate
 from pytorch3d.renderer import PerspectiveCameras
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 
+MEANS_LR = 0.002
+
+def ssim_loss(pred, gt, window_size=11, sigma=1.5, C1=0.01 ** 2, C2=0.03 ** 2):
+    # Gaussian-window SSIM over the valid (unpadded) region
+    x = pred.permute(2, 0, 1)[None]
+    y = gt.permute(2, 0, 1)[None]
+    c = x.shape[1]
+    coords = torch.arange(window_size, dtype=x.dtype, device=x.device) - window_size // 2
+    g = torch.exp(-coords ** 2 / (2 * sigma ** 2))
+    g = g / g.sum()
+    w = (g[:, None] * g[None, :]).expand(c, 1, window_size, window_size).contiguous()
+    blur = lambda t: F.conv2d(t, w, groups=c)
+    mu_x, mu_y = blur(x), blur(y)
+    s_xx = blur(x * x) - mu_x ** 2
+    s_yy = blur(y * y) - mu_y ** 2
+    s_xy = blur(x * y) - mu_x * mu_y
+    ssim_map = ((2 * mu_x * mu_y + C1) * (2 * s_xy + C2)) / ((mu_x ** 2 + mu_y ** 2 + C1) * (s_xx + s_yy + C2))
+    return ssim_map.mean()
+
 def make_trainable(gaussians):
 
-    ### YOUR CODE HERE ###
-    # HINT: You can access and modify parameters from gaussians
-    pass
+    gaussians.means.requires_grad_(True)
+    gaussians.pre_act_scales.requires_grad_(True)
+    gaussians.colours.requires_grad_(True)
+    gaussians.pre_act_opacities.requires_grad_(True)
 
-def setup_optimizer(gaussians):
+    if not gaussians.is_isotropic:
+        gaussians.pre_act_quats.requires_grad_(True)
 
+def setup_optimizer(gaussians, improved=False):
     gaussians.check_if_trainable()
-
-    ### YOUR CODE HERE ###
-    # HINT: Modify the learning rates to reasonable values. We have intentionally
-    # set very high learning rates for all parameters.
-    # HINT: Consider reducing the learning rates for parameters that seem to vary too
-    # fast with the default settings.
-    # HINT: Consider setting different learning rates for different sets of parameters.
+    if improved:
+        lrs = dict(opacities=0.05, scales=0.005, colours=0.025, means=MEANS_LR, quats=0.001)
+    else:
+        lrs = dict(opacities=0.05, scales=0.01, colours=0.05, means=0.001, quats=0.001)  # your Q6 set
     parameters = [
-        {'params': [gaussians.pre_act_opacities], 'lr': 0.05, "name": "opacities"},
-        {'params': [gaussians.pre_act_scales], 'lr': 0.05, "name": "scales"},
-        {'params': [gaussians.colours], 'lr': 0.05, "name": "colours"},
-        {'params': [gaussians.means], 'lr': 0.05, "name": "means"},
+        {'params': [gaussians.pre_act_opacities], 'lr': lrs["opacities"], "name": "opacities"},
+        {'params': [gaussians.pre_act_scales], 'lr': lrs["scales"], "name": "scales"},
+        {'params': [gaussians.colours], 'lr': lrs["colours"], "name": "colours"},
+        {'params': [gaussians.means], 'lr': lrs["means"], "name": "means"},
     ]
-    optimizer = torch.optim.Adam(parameters, lr=0.0, eps=1e-15)
-    optimizer = None
-
-    return optimizer
+    if not gaussians.is_isotropic:
+        parameters.append({'params': [gaussians.pre_act_quats], 'lr': lrs["quats"], "name": "quats"})
+    return torch.optim.Adam(parameters, lr=0.0, eps=1e-15)
 
 def ndc_to_screen_camera(camera, img_size = (128, 128)):
 
@@ -88,18 +108,26 @@ def run_training(args):
     # Init gaussians and scene
     gaussians = Gaussians(
         num_points=10000, init_type="random",
-        device=args.device, isotropic=True
+        device=args.device, isotropic=not args.improved,
     )
     scene = Scene(gaussians)
 
+    if args.improved:
+        gaussians.means = (torch.rand_like(gaussians.means) * 2.0 - 1.0) * 1.2
+        gaussians.pre_act_scales = torch.full_like(gaussians.pre_act_scales, math.log(0.02))
+        gaussians.pre_act_opacities = torch.full_like(gaussians.pre_act_opacities, math.log(0.1 / 0.9))
+
     # Making gaussians trainable and setting up optimizer
     make_trainable(gaussians)
-    optimizer = setup_optimizer(gaussians)
+    optimizer = setup_optimizer(gaussians, improved=args.improved)
 
     # Training loop
     viz_frames = []
     for itr in range(args.num_itrs):
-
+        if args.improved:
+            for g in optimizer.param_groups:
+                if g["name"] == "means":
+                    g["lr"] = MEANS_LR * 0.01 ** (itr / args.num_itrs)
         # Fetching data
         try:
             data = next(train_itr)
@@ -111,17 +139,21 @@ def run_training(args):
         camera = ndc_to_screen_camera(data[0]["camera"]).cuda()
 
         # Rendering scene using gaussian splatting
-        ### YOUR CODE HERE ###
         # HINT: Can any function from the Scene class help?
         # HINT: Set bg_colour to (0.0, 0.0, 0.0)
         # HINT: Set img_size to (128, 128)
         # HINT: Get per_splat from args.gaussians_per_splat
         # HINT: camera is available above
-        pred_img = None
+        pred_img, _, _ = scene.render(
+            camera, 
+            per_splat=args.gaussians_per_splat,
+            img_size=(128, 128),
+            bg_colour=(0.0, 0.0, 0.0),
+        )
 
         # Compute loss
-        ### YOUR CODE HERE ###
-        loss = None
+        l1 = F.l1_loss(pred_img, gt_img)
+        loss = 0.8 * l1 + 0.2 * (1.0 - ssim_loss(pred_img, gt_img)) if args.improved else l1
 
         loss.backward()
         optimizer.step()
@@ -154,13 +186,17 @@ def run_training(args):
         with torch.no_grad():
 
             # Rendering scene using gaussian splatting
-            ### YOUR CODE HERE ###
             # HINT: Can any function from the Scene class help?
             # HINT: Set bg_colour to (0.0, 0.0, 0.0)
             # HINT: Set img_size to (128, 128)
             # HINT: Get per_splat from args.gaussians_per_splat
             # HINT: camera is available above
-            pred_img = None
+            pred_img, _, _ = scene.render(
+                camera, 
+                per_splat=args.gaussians_per_splat,
+                img_size=(128, 128),
+                bg_colour=(0.0, 0.0, 0.0),
+            )
 
         pred_npy = pred_img.detach().cpu().numpy()
         pred_npy = (np.clip(pred_npy, 0.0, 1.0) * 255.0).astype(np.uint8)
@@ -179,14 +215,17 @@ def run_training(args):
         with torch.no_grad():
 
             # Rendering scene using gaussian splatting
-            # Rendering scene using gaussian splatting
-            ### YOUR CODE HERE ###
             # HINT: Can any function from the Scene class help?
             # HINT: Set bg_colour to (0.0, 0.0, 0.0)
             # HINT: Set img_size to (128, 128)
             # HINT: Get per_splat from args.gaussians_per_splat
             # HINT: camera is available above
-            pred_img = None
+            pred_img, _, _ = scene.render(
+                camera, 
+                per_splat=args.gaussians_per_splat,
+                img_size=(128, 128),
+                bg_colour=(0.0, 0.0, 0.0),
+            )
 
             gt_npy = gt_img.detach().cpu().numpy()
             pred_npy = pred_img.detach().cpu().numpy()
@@ -233,6 +272,7 @@ def get_args():
         help="Frequency with which visualization should be performed."
     )
     parser.add_argument("--device", default="cuda", type=str, choices=["cuda", "cpu"])
+    parser.add_argument("--improved", action="store_true", help="for harder scenes; off = Q6 baseline")
     args = parser.parse_args()
     return args
 

@@ -92,6 +92,25 @@ def render_gaussians_sh(gaussians_per_splat=2048):
 
 
 """
+7.2. Training on a harder scene (10 points)
+"""
+def train_harder_baseline(num_itrs=1000, gaussians_per_splat=-1):
+    # Q6 setup (isotropic, Q6 learning rates, L1) on materials with random init;
+    # output/part_7_2_baseline/ GIFs, prints PSNR and SSIM
+    run_gs("train_harder_scene.py", ["--out_path", "output/part_7_2_baseline",
+                                     "--num_itrs", str(num_itrs),
+                                     "--gaussians_per_splat", str(gaussians_per_splat)])
+
+
+def train_harder_improved(num_itrs=3000, gaussians_per_splat=-1):
+    # --improved: anisotropic, L1 + SSIM, spread-out init, decaying means lr;
+    # output/part_7_2_improved/
+    run_gs("train_harder_scene.py", ["--out_path", "output/part_7_2_improved", "--improved",
+                                     "--num_itrs", str(num_itrs),
+                                     "--gaussians_per_splat", str(gaussians_per_splat)])
+
+
+"""
 Helper functions
 """
 def train_nerf(config, tag, gif, num_epochs, retrain=False):
@@ -142,6 +161,8 @@ PARTS = {
     "render_gaussians": render_gaussians,
     "train_gaussians": train_gaussians,
     "render_gaussians_sh": render_gaussians_sh,
+    "train_harder_baseline": train_harder_baseline,
+    "train_harder_improved": train_harder_improved,
 }
 
 
@@ -155,7 +176,7 @@ def main():
         parser.error(f"unknown part(s) {unknown}; choose from {list(PARTS)}")
 
     # A. Neural volume rendering: 1.3-1.5, 2, 3, 4.1 (view dependence)
-    # B. 3D Gaussian splatting: 5.1-5.5, 6, 7.1 (spherical harmonics)
+    # B. 3D Gaussian splatting: 5.1-5.5, 6, 7.1 (spherical harmonics), 7.2 (harder scene)
     for name in args.parts or PARTS:
         PARTS[name]()
     return
