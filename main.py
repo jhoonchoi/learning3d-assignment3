@@ -135,8 +135,10 @@ def train_nerf(config, tag, gif, num_epochs, retrain=False):
         print(f"[{tag}] {checkpoint} and {gif} exist, skipping (retrain=True to redo)")
         return
 
+    # checkpoint every 10 epochs (configs say 50) so a Spot interruption loses little
     run_nerf(config, [f"training.num_epochs={num_epochs}",
-                      f"training.checkpoint_path={checkpoint}"])
+                      f"training.checkpoint_path={checkpoint}",
+                      "training.checkpoint_interval=10"])
 
     # train_nerf always writes images/part_3.gif, so every run (lego included) keeps a
     # per-run copy; the copy only exists once the run finishes, so the skip check above
